@@ -1,0 +1,112 @@
+---
+title: "C1"
+author: "MartinezLeines"
+date: "2025-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(lubridate)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(zoo)
+library(kableExtra)
+library(readxl)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r message=FALSE, warning=FALSE}
+oil_production <- read_excel("../Data/oil_production_EC_2013_2023.xlsx")
+
+
+```
+
+```{r}
+
+# Convert the date column to Date format
+oil_production1<-oil_production |>
+  mutate(date = as.Date(date)) |>
+  select(-month,-year,-b043_share) |>
+  mutate(month = month(date)) |>
+  select(date, month, everything())
+
+#Trim the table to include only columns you need
+noil <- ncol(oil_production1)-2
+nobs <- nrow(oil_production1) 
+```
+
+```{r}
+p1 <-ggplot(oil_production1, aes(x = date, y = barrels_total)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p1)
+
+p2 <-ggplot(oil_production1, aes(x = date, y = barrels_other)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p2)
+
+p3 <-ggplot(oil_production1, aes(x = date, y = barrels_b043)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p3)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+
+ts_oil_other <- ts(oil_production1[,3],
+                           start=c(2013,1),
+                           frequency=12) 
+
+ts_oil_b043 <- ts(oil_production1[,4],
+                           start=c(2013,1),
+                           frequency=12) 
+
+ts_oil_total <- ts(oil_production1[,5],
+                           start=c(2013,1),
+                           frequency=12) 
+
+```
+
+
+```{r}
+p4 <- autoplot(ts_oil_other)
+print(p4)
+
+p5 <- autoplot(ts_oil_b043)
+print(p5)
+
+p6 <- autoplot(ts_oil_total)
+print(p6)
+```
+
+```{r}
+#Plot
+autoplot(ts_oil_total ,color="darkblue")+
+  autolayer(ts_oil_b043,series="043",color="green")+
+  autolayer(ts_oil_other,series="Other",color="red")
+```
+
