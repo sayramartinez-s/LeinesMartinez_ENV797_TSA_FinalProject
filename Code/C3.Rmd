@@ -23,15 +23,27 @@ library(smooth)
 library(zoo)
 library(kableExtra)
 library(readxl)
+library(writexl)
 ```
 
 ## Including Plots
 
 You can also embed plots, for example:
 
-```{r message=FALSE, warning=FALSE}
-oil_production <- read_excel("../Data/oil_production_EC_2013_2023.xlsx")
-oil_prices<- read_excel("../Data/oil_price_2013-2023.xlsx")
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/LeinesMartinez_ENV797_TSA_FinalProject" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Output")
+
+file1 <- "oil_production_EC_2013_2023.xlsx"
+file2 <- "oil_price_2013-2023.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+
+oil_production <- read_excel(file_path1)
+oil_prices <- read_excel(file_path2)
+
 ```
 
 
@@ -41,28 +53,24 @@ oil_data <- oil_production |>
   select(-month.y, -year.y, -month.x, -year.x) |>
   mutate(date = as.Date(date)) |>
   select(date, everything())
+
+
+output_file1 <- file.path(output_dir, "oil_data_2013_2023.xlsx")
+write_xlsx(oil_data, path = output_file1)
+
 ```
 
 
 ```{r}
 
-# Convert the date column to Date format
-oil_production1<-oil_production |>
-  mutate(date = as.Date(date)) |>
-  select(-month,-year,-b043_share) |>
-  mutate(month = month(date)) |>
-  select(date, month, everything())
+oil_data1<-oil_data
+
 
 #Trim the table to include only columns you need
 noil <- ncol(oil_data1)-2
 nobs <- nrow(oil_data1) 
 ```
 
-
-```{r}
-
-  
-```
 
 
 ```{r}
