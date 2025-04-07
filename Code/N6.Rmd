@@ -552,7 +552,146 @@ kbl(models_scores,
   kable_styling(latex_options="striped", stripe_index = which.min(models_scores[,"RMSE"]))
 ```
 
+#Scenario Analysis
+
+```{r}
+#TBATS—the best‐performing model among your nine—to conduct the scenario analysis. Because TBATS is a univariate model (it does not accept exogenous regressors), we must estimate the Block 43 contribution separately. One common approach is to compute the average monthly production from Block 43 during a recent period and then “remove” that contribution from the TBATS baseline forecast to simulate a shutdown. In other words, your shutdown scenario forecast equals the TBATS baseline forecast minus the estimated Block 43 production (or a ramp‐down profile if desired).
+
+#The code proceeds as follows:
+
+#Fit a TBATS model to the total production series through 2023.
+#Generate a baseline forecast using TBATS.
+#Compute the average Block 43 production over the last 12 months (or use a ramp‐down vector).
+#Create a “shutdown scenario” forecast by subtracting that average from the TBATS forecast.
+#Compute and plot the production gap.
+
+
+```
+
+
+```{r}
+#Fit TBATS Model on Total Production ----
+tbats_model <- tbats(ts_oil_total_2023)
+forecast_baseline <- forecast(tbats_model, h = h)
+print(forecast_baseline)
+
+```
+
+
+```{r}
+# ---- Step 4: Estimate Block 43 Contribution ----
+# Here, we compute the average monthly production from Block43 over the last 12 months.
+average_block43 <- mean(tail(oil_data_2023$barrels_b043, 12))
+cat("Average monthly Block 43 production:", average_block43, "\n")
+
+# Alternatively, you could create a ramp-down vector if you expect a gradual shutdown.
+# For a simple case, we use a constant value:
+block43_shutdown <- rep(average_block43, h)  # this will be subtracted from the baseline
+
+```
+
+
+```{r}
+
+
+# ---- Step 5: Create Shutdown Scenario Forecast ----
+# The shutdown scenario forecast is computed by subtracting Block43's contribution.
+forecast_shutdown <- forecast_baseline
+forecast_shutdown$mean <- forecast_baseline$mean - block43_shutdown
+
+# ---- Step 6: Compute Production Gap ----
+production_gap <- forecast_baseline$mean - forecast_shutdown$mean
+cat("Production gap (per month):\n")
+print(production_gap)
+
+```
+
+
+```{r}
+
+
+# ---- Step 7: Plot the Forecast Scenarios ----
+autoplot(forecast_baseline) +
+  autolayer(forecast_shutdown, series = "Shutdown Scenario", PI = FALSE) +
+  ggtitle("TBATS Forecast: Baseline vs. Block 43 Shutdown Scenario") +
+  xlab("Time") + ylab("Total Oil Production") +
+  guides(colour = guide_legend(title = "Scenario"))
+
+
+```
+
+```{r}
+# ---- Step 8: Plot the Production Gap ----
+
+
+gap_df <- data.frame(
+  Time = time(production_gap),
+  Gap  = as.numeric(production_gap)
+)
+
+# Convert numeric time to a "yearmon" format, then to a Date
+gap_df$TimeDate <- as.Date(as.yearmon(gap_df$Time))
+
+ggplot(gap_df, aes(x = TimeDate, y = Gap)) +
+  geom_line(color = "red", size = 1) +
+  ggtitle("Estimated Production Gap due to Block 43 Shutdown") +
+  xlab("Date") +
+  ylab("Production Gap") +
+  scale_x_date(
+    date_breaks = "3 month",    # or "3 months", "1 year", etc.
+    date_labels = "%b-%Y"       # e.g., "Jan-2024"
+  ) +
+  theme_minimal()
+```
 
 
 
+```{r}
+# Instead of using a constant shutdown vector:
+# block43_shutdown <- rep(average_block43, h)
+
+# Create a ramp-down vector: 
+# For example, if you want production to decline linearly from average_block43 to 0:
+block43_shutdown <- seq(from = average_block43, to = 0, length.out = h)
+
+# Now create the shutdown scenario forecast by subtracting the ramp-down vector:
+forecast_shutdown_ramp <- forecast_baseline
+forecast_shutdown_ramp$mean <- forecast_baseline$mean - block43_shutdown
+
+# Compute the production gap for the ramp-down scenario
+production_gap_ramp <- forecast_baseline$mean - forecast_shutdown_ramp$mean
+
+
+gap_df_ramp <- data.frame(
+  Time = time(production_gap_ramp),
+  Gap  = as.numeric(production_gap_ramp)
+)
+
+# Convert numeric time to a "yearmon" format, then to a Date
+gap_df_ramp$TimeDate <- as.Date(as.yearmon(gap_df_ramp$Time))
+
+
+# Plot the production gap for the ramp-down scenario:
+ggplot(gap_df_ramp, aes(x = TimeDate, y = Gap)) +
+  geom_line(color = "red", size = 1) +
+  ggtitle("Estimated Production Gap with Ramp-Down of Block 43") +
+  xlab("Time") + ylab("Production Gap")
+```
+```{r}
+
+forecast_obj <- forecast(tbats_model, h = 24)  # forecast 2 years ahead, for example
+# Aggregate the monthly forecast to annual totals.
+# 'nfrequency = 1' converts the series to annual frequency.
+annual_forecast <- aggregate(forecast_obj$mean, nfrequency = 1, FUN = sum)
+
+print(annual_forecast)
+```
+
+```{r}
+autoplot(annual_forecast, series = "Aggregated Forecast") +
+  autolayer(annual_ts, series = "Historical Annual Data", PI = FALSE) +
+  ggtitle("Annual Aggregated Forecast vs. Historical Annual Data") +
+  xlab("Year") + ylab("Annual Total Oil Production") +
+  guides(colour = guide_legend(title = "Series"))
+```
 
