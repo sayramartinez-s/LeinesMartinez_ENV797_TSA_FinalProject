@@ -24,6 +24,7 @@ library(zoo)
 library(kableExtra)
 library(readxl)
 library(writexl)
+library(dplyr)
 ```
 
 ## Including Plots
@@ -31,18 +32,21 @@ library(writexl)
 You can also embed plots, for example:
 
 ```{r}
-base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/LeinesMartinez_ENV797_TSA_FinalProject" # Update this
+base_dir <- "~/R/LeinesMartinez_ENV797_TSA_FinalProject" # Update this
 data_dir <- file.path(base_dir, "Data")
 output_dir <- file.path(base_dir, "Output")
 
 file1 <- "oil_production_EC_2007_2024.xlsx"
 file2 <- "oil_price_2007-2024.xlsx"
+file3 <- "annual_oil_production_1972-2023.xlsx"
 
 file_path1 <- file.path(data_dir, file1)
 file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
 
 oil_production <- read_excel(file_path1)
 oil_prices <- read_excel(file_path2)
+annual_oil_production <- read_excel(file_path3)
 
 ```
 
@@ -57,20 +61,38 @@ oil_data <- oil_production |>
 
 output_file1 <- file.path(output_dir, "oil_data_2007_2024.xlsx")
 write_xlsx(oil_data, path = output_file1)
+  
 
 ```
 
 
 ```{r}
+output_file3 <- file.path(output_dir, "oil_data_72_2023.xlsx")
+annual_data_72_2023 <- annual_oil_production |>
+  slice(-1:-14) |>                     # Remove the first 14 rows
+  select(2, 8) |>                      # Keep only columns 2 and 8
+  setNames(c("year", "annual_production")) |>  # Rename columns directly
+  filter(!(is.na(year) & is.na(annual_production))) %>%
+  mutate(
+    year = as.numeric(year),  # if 'year' is stored as character, convert to numeric
+    annual_production = as.numeric(annual_production)
+  )
 
-oil_data1<-oil_data
+write_xlsx(annual_data_72_2023, path = output_file3)
 
+```
 
+```{r}
+#I forced to 0 all the NA in our processed data
+oil_data1<-oil_data %>%
+  replace_na(list(barrels_b043 = 0, b043_share = 0))
+```
+
+```{r}
 #Trim the table to include only columns you need
 noil <- ncol(oil_data1)-2
 nobs <- nrow(oil_data1) 
 ```
-
 
 
 ```{r}
@@ -99,17 +121,16 @@ print(p3)
 
 
 ```{r message=FALSE, warning=FALSE}
-
-
-ts_oil_other <- ts(oil_data1[,3],
+#I corrected the columns
+ts_oil_other <- ts(oil_data1[,4],
                            start=c(2013,1),
                            frequency=12) 
 
-ts_oil_b043 <- ts(oil_data1[,4],
+ts_oil_b043 <- ts(oil_data1[,3],
                            start=c(2013,1),
                            frequency=12) 
 
-ts_oil_total <- ts(oil_data1[,5],
+ts_oil_total <- ts(oil_data1[,2],
                            start=c(2013,1),
                            frequency=12) 
 
@@ -129,8 +150,19 @@ print(p6)
 
 ```{r}
 #Plot
-autoplot(ts_oil_total ,color="darkblue")+
+autoplot(ts_oil_total, color="darkblue")+
   autolayer(ts_oil_b043,series="043",color="green")+
   autolayer(ts_oil_other,series="Other",color="red")
 ```
 
+```{r}
+annual_ts <- ts(annual_data_72_2023[,2],
+                start = c(1972, 1),
+                frequency = 1)
+p7 <- autoplot(annual_ts)
+print(p7)
+```
+
+```{r}
+
+```
