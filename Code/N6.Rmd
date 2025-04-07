@@ -1,0 +1,697 @@
+---
+title: "C1"
+author: "MartinezLeines"
+date: "2025-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(lubridate)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(zoo)
+library(kableExtra)
+library(readxl)
+library(writexl)
+library(dplyr)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/LeinesMartinez_ENV797_TSA_FinalProject" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Output")
+
+file1 <- "oil_production_EC_2007_2024.xlsx"
+file2 <- "oil_price_2007-2024.xlsx"
+file3 <- "annual_oil_production_1972-2023.xlsx"
+file4 <- "oil_data_2007_2024.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
+file_path4 <- file.path(data_dir, file4)
+
+oil_production <- read_excel(file_path1)
+oil_prices <- read_excel(file_path2)
+annual_oil_production <- read_excel(file_path3)
+oil_data <- read_excel(file_path4)
+```
+```{r}
+#I forced to 0 all the NA in our processed data
+oil_data1<-oil_data |>
+  mutate(date=as.Date(date))|>
+  replace_na(list(barrels_b043 = 0, b043_share = 0))
+```
+
+```{r}
+#Trim the table to include only columns you need
+noil <- ncol(oil_data1)-2
+nobs <- nrow(oil_data1) 
+```
+
+
+```{r}
+p1 <-ggplot(oil_data1, aes(x = date, y = barrels_total)) +
+  geom_line(color = "blue") +
+  labs(title = "Monthly Oil Production in Ecuador", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p1)
+
+p2 <-ggplot(oil_data1, aes(x = date, y = wti_oil_price)) +
+  geom_line(color = "darkgreen") +
+  labs(title = "Monthly WTI Prices", x = "Date", y = "WTI Price")+
+  theme_classic()
+
+print(p2)
+
+p3<- ggplot(oil_data1, aes(x = date, y = barrels_b043)) +
+  geom_line(color = "red") +
+  labs(title = "Monthly Block 43 ITT Production", x = "Date", y = "Block 43 ITT Production") +
+  theme_classic()
+
+print(p3)
+
+
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#I corrected the columns
+ts_oil_total <- ts(oil_data1[,2],
+                           start=c(2007,1),
+                           frequency=12) 
+
+ts_oil_b043 <- ts(oil_data1[,3],
+                           start=c(2007,1),
+                           frequency=12) 
+
+ts_oil_price <- ts(oil_data1[,6],
+                           start=c(2007,1),
+                           frequency=12) 
+
+```
+
+
+```{r}
+p4 <- autoplot(ts_oil_total)
+print(p4)
+
+p5 <- autoplot(ts_oil_b043)
+print(p5)
+
+p6 <- autoplot(ts_oil_price)
+print(p6)
+```
+
+```{r}
+# ACF and PACF for Production
+Acf(ts_oil_total, lag.max = 40, main = "ACF of Production")
+Pacf(ts_oil_total, lag.max = 40, main = "PACF of Production")
+```
+
+
+
+```{r}
+# Decompose the Production series (additive decomposition)
+decomp_prod <- decompose(ts_oil_total, type = "additive")
+plot(decomp_prod)
+
+# Remove the seasonal component
+deseasonal_prod <- seasadj(decomp_prod)
+
+# Compare the original and deseasonalized series
+autoplot(ts_oil_total, series = "Original") +
+  autolayer(deseasonal_prod, series = "Deseasonalized") +
+  labs(title = "Production: Original vs. Deseasonalized")
+```
+
+
+
+```{r}
+# Perform ADF test on the deseasonalized Production series
+adf_result <- adf.test(deseasonal_prod, alternative = "stationary")
+print(adf_result)
+```
+```{r}
+# Difference the deseasonalized series
+diff_prod <- diff(deseasonal_prod, differences = 1)
+
+# Plot the differenced series
+autoplot(diff_prod, main = "Differenced Deseasonalized Production") +
+  labs(x = "Time", y = "Differenced Production")
+```
+```{r}
+# Check stationarity again
+adf_result_diff <- adf.test(diff_prod, alternative = "stationary")
+print(adf_result_diff)
+```
+```{r}
+# ACF and PACF for the differenced series
+Acf(diff_prod, lag.max = 40, main = "ACF of Differenced Series")
+Pacf(diff_prod, lag.max = 40, main = "PACF of Differenced Series")
+```
+
+> Analysis ACF: The spike at lag 1 appears somewhat negative (below the lower blue line), suggesting some immediate negative correlation with the first lag. That sometimes indicates an MA(1) effect or a negative AR(1) coefficient.
+
+>Analysis PACF: There’s a notable negative spike at lag 1, and possibly some mild spikes around lag 3 or 4.
+
+```{r}
+# to the deseasonalized Production series
+model_auto <- auto.arima(deseasonal_prod)
+summary(model_auto)
+```
+```{r}
+checkresiduals(model_auto)
+```
+> Analysis: the residuals mostly fluctuate around zero. It has outliers due to COVID and other event around 2022.It could be good to add them as dummies.
+
+>Analysis ACF:  ACF looks mostly within the bounds, indicating little to no autocorrelation in the residuals. That’s a sign your ARIMA(0,1,2) model is adequately capturing time‐dependent structure. There are 3 main spikes at specific lags. 
+
+>Analysis Residual histogram: The histogram looks centered near zero even when there are some outliers.
+
+> Analysis test: p‐value (< 0.05) in the Ljung‐Box test indicates that there is still significant autocorrelation in residuals. The ARIMA(0,1,2) model hasn’t fully captured the time‐dependent structure of the data.
+
+```{r}
+Acf(residuals(model_auto))
+Pacf(residuals(model_auto))
+
+```
+```{r}
+model_sarima <- auto.arima(
+  ts_oil_total,
+  seasonal = TRUE
+)
+
+summary(model_sarima)
+```
+
+```{r}
+checkresiduals(model_sarima)
+```
+> Analysis test: the very low Ljung–Box p-value indicates that its residuals are not white noise. The  SARIMA(2,1,1)(0,0,1)[12] model on the total series isn’t fully capturing the dynamics.
+
+
+```{r}
+Acf(residuals(model_sarima))
+Pacf(residuals(model_sarima))
+```
+
+
+```{r}
+# For example, create a matrix of external regressors from your oil_data
+# Make sure the regressor vectors are of the same length as your Production series
+xreg_all <- cbind(WTI = oil_data1$wti_oil_price, Block43 = oil_data1$barrels_b043)
+xreg_price <- oil_data1$wti_oil_price
+```
+
+```{r}
+# Fit the SARIMAX model using auto.arima with xreg
+model_sarimax <- auto.arima(deseasonal_prod, xreg = xreg_all, seasonal = TRUE)
+summary(model_sarimax)
+
+
+```
+
+```{r}
+# Check residuals for the SARIMAX model
+checkresiduals(model_sarimax)
+
+```
+> Analysis: p‐value = 0.1569 (> 0.05) suggests no significant autocorrelation remains in the residuals.The SARIMAX model with regressors yielded residuals that appear closer to white noise.
+
+
+```{r}
+model_sarimax_orig <- auto.arima(
+  ts_oil_total,
+  xreg = cbind(oil_data1$wti_oil_price, oil_data1$barrels_b043),
+  seasonal = TRUE, 
+  stepwise = FALSE,       # often better for thorough search
+  approximation = FALSE
+)
+summary(model_sarimax_orig)
+
+```
+
+```{r}
+checkresiduals(model_sarimax_orig)
+```
+```{r}
+
+```
+
+
+
+
+#Train/Test
+
+```{r}
+# Restrict the production series to data until the end of 2023
+ts_oil_total_2023 <- window(ts_oil_total, end = c(2023, 12))
+deseasonal_prod_2023 <- window(deseasonal_prod, end = c(2023, 12))
+oil_data_2023 <- oil_data1[oil_data1$date <= as.Date("2023-12-31"), ]
+xreg_all_2023 <- cbind(WTI = oil_data_2023$wti_oil_price, Block43 = oil_data_2023$barrels_b043)
+price_regressor_2023 <- oil_data_2023$wti_oil_price
+
+# Define forecast horizon
+n_for <- 12
+n_total <- length(ts_oil_total_2023)
+n_total_des <- length(deseasonal_prod_2023)
+
+# For Model A (total series)
+ts_train_A <- window(ts_oil_total_2023, end = time(ts_oil_total_2023)[n_total - n_for])
+ts_test_A <- window(ts_oil_total_2023, start = time(ts_oil_total_2023)[n_total - n_for + 1])
+
+# For Model B (deseasonalized series)
+
+ts_train_B <- window(deseasonal_prod_2023, end = time(deseasonal_prod_2023)[n_total_des - n_for])
+ts_test_B <- window(deseasonal_prod_2023, start = time(deseasonal_prod_2023)[n_total_des - n_for + 1])
+
+ts_train_C <- window(ts_oil_total, end = time(ts_oil_total)[n_total - n_for])
+ts_test_C <- window(ts_oil_total, start = time(ts_oil_total)[n_total - n_for + 1])
+
+
+# For exogenous regressors:
+xreg_train <- xreg_all_2023[1:(n_total - n_for), ]
+xreg_test <- xreg_all_2023[(n_total - n_for + 1):n_total, ]
+price_train <- price_regressor_2023[1:(n_total - n_for)]
+price_test <- price_regressor_2023[(n_total - n_for + 1):n_total]
+
+# Forecast horizon
+h <- n_for
+```
+
+#Model 1
+
+```{r}
+# Model A: Baseline SARIMA on total production
+model_1_train <- auto.arima(ts_train_A, seasonal = TRUE)
+
+# Forecast for Model A
+forecast_1 <- forecast(model_1_train, h = h)
+
+print(forecast_1)
+
+# Plot the forecast
+plot(forecast_1)
+
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_1, series="Sarima",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+```
+
+#Model 2:
+
+```{r}
+
+# Model B: SARIMAX on deseasonalized production with regressors
+model_2_train <- auto.arima(ts_train_B, xreg = xreg_train, seasonal = TRUE)
+
+# Forecast for Model B (with xreg)
+forecast_2 <- forecast(model_2_train, xreg = xreg_test, h = h)
+
+print(forecast_2)
+
+# Plot the forecast
+plot(forecast_2)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_2, series="Sarimax",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+```
+
+#Model 3
+
+```{r}
+# Model 3: ARIMAX on deseasonalized production with regressors
+model_3_train <- auto.arima(ts_train_A, xreg = xreg_train, seasonal = TRUE)
+
+# Forecast for Model C (with xreg)
+forecast_3 <- forecast(model_3_train, xreg = xreg_test, h = h)
+
+print(forecast_3)
+
+# Plot the forecast
+plot(forecast_3)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_3, series="Arimax",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+```
+
+#Model 4
+
+```{r}
+# Model 4
+model_4_train <- meanf(ts_train_A, h = h)
+
+# Plot the forecast
+plot(model_4_train)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(model_4_train, series="Mean",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+```
+```{r}
+# Model 5: 
+model_5_train <- ets(ts_train_A, model = "ANN")
+
+# Forecast for Model 5
+forecast_5 <- forecast(model_5_train, h = h)
+
+print(forecast_5)
+
+# Plot the forecast
+plot(forecast_5)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_5, series="ETS",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+```
+
+
+```{r}
+# Model 6: 
+model_6_train <- tbats(ts_train_A)
+
+# Forecast for Model 6
+forecast_6 <- forecast(model_6_train, h = h)
+
+print(forecast_6)
+
+# Plot the forecast
+plot(forecast_6)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_6, series="TBATS",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+
+
+
+```
+```{r}
+# Model 7: 
+model_7_train <- nnetar(ts_train_A)
+
+# Forecast for Model 7
+forecast_7 <- forecast(model_7_train, h = h)
+
+print(forecast_7)
+
+# Plot the forecast
+plot(forecast_7)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_7, series="Neural Network",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+
+```
+
+```{r}
+# Model 8: 
+model_8_train <- StructTS(ts_train_A, type = "BSM")
+
+# Forecast for Model 8
+forecast_8 <- forecast(model_8_train, h = h)
+
+print(forecast_8)
+
+# Plot the forecast
+plot(forecast_8)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_8, series="StructTS",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+
+```
+
+
+#Model 9
+
+```{r}
+# Model 8: 
+model_9_train <- auto.arima(ts_train_A, 
+                             xreg = price_train, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Forecast for Model 8
+forecast_9 <- forecast(model_9_train, h = h, xreg = price_test)
+
+print(forecast_9)
+
+# Plot the forecast
+plot(forecast_9)
+
+#Plot model + observed data
+autoplot(ts_oil_total) +
+  autolayer(forecast_9, series="ARIMAX (Price Only)",PI=FALSE) +
+  ylab("Monthly oil production Ecuador")
+
+```
+
+
+
+```{r}
+
+#Model 1
+SARIMA_scores <- accuracy(forecast_1$mean, ts_test_A)
+
+
+#Model 2
+SARIMAX_scores <- accuracy(forecast_2$mean, ts_test_B)
+
+#Model 3
+ARIMAX_scores <- accuracy(forecast_3$mean, ts_test_A)
+
+#Model 4
+Mean_scores <- accuracy(model_4_train$mean, ts_test_A)
+
+#Model 5
+ETS_scores <- accuracy(forecast_5$mean, ts_test_A)
+
+#Model 6
+TBATS_scores <- accuracy(forecast_6$mean, ts_test_A)
+
+#Model 7
+NN_scores <- accuracy(forecast_7$mean, ts_test_A)
+
+#Model 8
+StructTS_scores <- accuracy(forecast_8$mean, ts_test_A)
+
+
+#Model 9
+Arimax_p_scores <- accuracy(forecast_9$mean, ts_test_A)
+```
+
+
+```{r}
+# Combine in a table for easy comparison
+models_scores <- as.data.frame(rbind(SARIMA_scores, SARIMAX_scores,ARIMAX_scores,
+                                     Mean_scores,ETS_scores, TBATS_scores,
+                                     NN_scores,StructTS_scores, Arimax_p_scores ))
+row.names(models_scores) <- c("SARIMA", "SARIMAX", "ARIMAX",
+                              "Mean","ETS", "TBATS",
+                                     "NN","StructTS", "Arimax_p")
+print(models_scores)
+
+#choose model with lowest RMSE
+best_model_index <- which.min(models_scores[,"RMSE"])
+cat("The best model by RMSE is:", row.names(models_scores[best_model_index,])) 
+```
+
+
+
+```{r}
+
+autoplot(ts_oil_total) +
+  autolayer(forecast_1, series = "Model 1: SARIMA", PI = FALSE) +
+  autolayer(forecast_2, series = "Model 2: SARIMAX", PI = FALSE) +
+  autolayer(forecast_3, series = "Model 3: ARIMAX", PI = FALSE) +
+  autolayer(model_4_train, series = "Model 4: Mean", PI = FALSE) +
+  autolayer(forecast_5, series = "Model 5: ETS", PI = FALSE) +
+  autolayer(forecast_6, series = "Model 6: TBATS", PI = FALSE) +
+  autolayer(forecast_7, series = "Model 7: NN", PI = FALSE) +
+  autolayer(forecast_8, series = "Model 8: StructTS", PI = FALSE) +
+  autolayer(forecast_8, series = "Model 9: Arimax_p", PI = FALSE) +
+  ggtitle("Forecast Comparison") +
+  xlab("Time") + ylab("Production")+
+  guides(colour=guide_legend(title="Forecast"))
+
+```
+```{r}
+kbl(models_scores, 
+      caption = "Forecast Accuracy for Monthly Data",
+      digits = array(9,ncol(models_scores))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  #highlight model with lowest RMSE
+  kable_styling(latex_options="striped", stripe_index = which.min(models_scores[,"RMSE"]))
+```
+
+#Scenario Analysis
+
+```{r}
+#TBATS—the best‐performing model among your nine—to conduct the scenario analysis. Because TBATS is a univariate model (it does not accept exogenous regressors), we must estimate the Block 43 contribution separately. One common approach is to compute the average monthly production from Block 43 during a recent period and then “remove” that contribution from the TBATS baseline forecast to simulate a shutdown. In other words, your shutdown scenario forecast equals the TBATS baseline forecast minus the estimated Block 43 production (or a ramp‐down profile if desired).
+
+#The code proceeds as follows:
+
+#Fit a TBATS model to the total production series through 2023.
+#Generate a baseline forecast using TBATS.
+#Compute the average Block 43 production over the last 12 months (or use a ramp‐down vector).
+#Create a “shutdown scenario” forecast by subtracting that average from the TBATS forecast.
+#Compute and plot the production gap.
+
+
+```
+
+
+```{r}
+#Fit TBATS Model on Total Production ----
+tbats_model <- tbats(ts_oil_total_2023)
+forecast_baseline <- forecast(tbats_model, h = h)
+print(forecast_baseline)
+
+```
+
+
+```{r}
+# ---- Step 4: Estimate Block 43 Contribution ----
+# Here, we compute the average monthly production from Block43 over the last 12 months.
+average_block43 <- mean(tail(oil_data_2023$barrels_b043, 12))
+cat("Average monthly Block 43 production:", average_block43, "\n")
+
+# Alternatively, you could create a ramp-down vector if you expect a gradual shutdown.
+# For a simple case, we use a constant value:
+block43_shutdown <- rep(average_block43, h)  # this will be subtracted from the baseline
+
+```
+
+
+```{r}
+
+
+# ---- Step 5: Create Shutdown Scenario Forecast ----
+# The shutdown scenario forecast is computed by subtracting Block43's contribution.
+forecast_shutdown <- forecast_baseline
+forecast_shutdown$mean <- forecast_baseline$mean - block43_shutdown
+
+# ---- Step 6: Compute Production Gap ----
+production_gap <- forecast_baseline$mean - forecast_shutdown$mean
+cat("Production gap (per month):\n")
+print(production_gap)
+
+```
+
+
+```{r}
+
+
+# ---- Step 7: Plot the Forecast Scenarios ----
+autoplot(forecast_baseline) +
+  autolayer(forecast_shutdown, series = "Shutdown Scenario", PI = FALSE) +
+  ggtitle("TBATS Forecast: Baseline vs. Block 43 Shutdown Scenario") +
+  xlab("Time") + ylab("Total Oil Production") +
+  guides(colour = guide_legend(title = "Scenario"))
+
+
+```
+
+```{r}
+# ---- Step 8: Plot the Production Gap ----
+
+
+gap_df <- data.frame(
+  Time = time(production_gap),
+  Gap  = as.numeric(production_gap)
+)
+
+# Convert numeric time to a "yearmon" format, then to a Date
+gap_df$TimeDate <- as.Date(as.yearmon(gap_df$Time))
+
+ggplot(gap_df, aes(x = TimeDate, y = Gap)) +
+  geom_line(color = "red", size = 1) +
+  ggtitle("Estimated Production Gap due to Block 43 Shutdown") +
+  xlab("Date") +
+  ylab("Production Gap") +
+  scale_x_date(
+    date_breaks = "3 month",    # or "3 months", "1 year", etc.
+    date_labels = "%b-%Y"       # e.g., "Jan-2024"
+  ) +
+  theme_minimal()
+```
+
+
+
+```{r}
+# Instead of using a constant shutdown vector:
+# block43_shutdown <- rep(average_block43, h)
+
+# Create a ramp-down vector: 
+# For example, if you want production to decline linearly from average_block43 to 0:
+block43_shutdown <- seq(from = average_block43, to = 0, length.out = h)
+
+# Now create the shutdown scenario forecast by subtracting the ramp-down vector:
+forecast_shutdown_ramp <- forecast_baseline
+forecast_shutdown_ramp$mean <- forecast_baseline$mean - block43_shutdown
+
+# Compute the production gap for the ramp-down scenario
+production_gap_ramp <- forecast_baseline$mean - forecast_shutdown_ramp$mean
+
+
+gap_df_ramp <- data.frame(
+  Time = time(production_gap_ramp),
+  Gap  = as.numeric(production_gap_ramp)
+)
+
+# Convert numeric time to a "yearmon" format, then to a Date
+gap_df_ramp$TimeDate <- as.Date(as.yearmon(gap_df_ramp$Time))
+
+
+# Plot the production gap for the ramp-down scenario:
+ggplot(gap_df_ramp, aes(x = TimeDate, y = Gap)) +
+  geom_line(color = "red", size = 1) +
+  ggtitle("Estimated Production Gap with Ramp-Down of Block 43") +
+  xlab("Time") + ylab("Production Gap")
+```
+```{r}
+
+forecast_obj <- forecast(tbats_model, h = 24)  # forecast 2 years ahead, for example
+# Aggregate the monthly forecast to annual totals.
+# 'nfrequency = 1' converts the series to annual frequency.
+annual_forecast <- aggregate(forecast_obj$mean, nfrequency = 1, FUN = sum)
+
+print(annual_forecast)
+```
+
+```{r}
+autoplot(annual_forecast, series = "Aggregated Forecast") +
+  autolayer(annual_ts, series = "Historical Annual Data", PI = FALSE) +
+  ggtitle("Annual Aggregated Forecast vs. Historical Annual Data") +
+  xlab("Year") + ylab("Annual Total Oil Production") +
+  guides(colour = guide_legend(title = "Series"))
+```
+

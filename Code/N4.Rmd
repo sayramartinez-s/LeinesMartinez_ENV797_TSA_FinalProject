@@ -1,0 +1,320 @@
+---
+title: "C1"
+author: "MartinezLeines"
+date: "2025-04-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(lubridate)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(zoo)
+library(kableExtra)
+library(readxl)
+library(writexl)
+library(dplyr)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/LeinesMartinez_ENV797_TSA_FinalProject" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Output")
+
+file1 <- "oil_production_EC_2007_2024.xlsx"
+file2 <- "oil_price_2007-2024.xlsx"
+file3 <- "annual_oil_production_1972-2023.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
+
+oil_production <- read_excel(file_path1)
+oil_prices <- read_excel(file_path2)
+annual_oil_production <- read_excel(file_path3)
+
+```
+
+
+```{r}
+oil_data <- oil_production |>
+  left_join(oil_prices, by = "date") |>
+  select(-month.y, -year.y, -month.x, -year.x) |>
+  mutate(date = as.Date(date)) |>
+  select(date, everything())
+
+
+output_file1 <- file.path(output_dir, "oil_data_2007_2024.xlsx")
+write_xlsx(oil_data, path = output_file1)
+  
+
+```
+
+
+```{r}
+output_file3 <- file.path(output_dir, "oil_data_72_2023.xlsx")
+annual_data_72_2023 <- annual_oil_production |>
+  slice(-1:-14) |>               
+  select(2, 8) |>                     
+  setNames(c("year", "annual_production")) |> 
+  filter(!(is.na(year) & is.na(annual_production))) %>%
+  mutate(
+    year = as.numeric(year),
+    annual_production = as.numeric(annual_production),
+    annual_production = as.numeric(annual_production) * 1000 
+  )
+
+write_xlsx(annual_data_72_2023, path = output_file3)
+
+```
+
+```{r}
+#I forced to 0 all the NA in our processed data
+oil_data1<-oil_data %>%
+  replace_na(list(barrels_b043 = 0, b043_share = 0))
+```
+
+```{r}
+#Trim the table to include only columns you need
+noil <- ncol(oil_data1)-2
+nobs <- nrow(oil_data1) 
+```
+
+
+```{r}
+p1 <-ggplot(oil_data, aes(x = date, y = barrels_total)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p1)
+
+p2 <-ggplot(oil_data1, aes(x = date, y = barrels_other)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p2)
+
+p3 <-ggplot(oil_data1, aes(x = date, y = barrels_b043)) +
+  geom_line() +
+  labs(title = "Monthly data over time", x = "Date", y = "Oil production") +
+  theme_classic()
+
+print(p3)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#I corrected the columns
+ts_oil_other <- ts(oil_data1[,4],
+                           start=c(2013,1),
+                           frequency=12) 
+
+ts_oil_b043 <- ts(oil_data1[,3],
+                           start=c(2013,1),
+                           frequency=12) 
+
+ts_oil_total <- ts(oil_data1[,2],
+                           start=c(2013,1),
+                           frequency=12) 
+
+```
+
+
+```{r}
+p4 <- autoplot(ts_oil_other)
+print(p4)
+
+p5 <- autoplot(ts_oil_b043)
+print(p5)
+
+p6 <- autoplot(ts_oil_total)
+print(p6)
+```
+
+```{r}
+#Plot
+autoplot(ts_oil_total, color="darkblue")+
+  autolayer(ts_oil_b043,series="043",color="green")+
+  autolayer(ts_oil_other,series="Other",color="red")
+```
+
+```{r}
+annual_ts <- ts(annual_data_72_2023[,2],
+                start = c(1972, 1),
+                frequency = 1)
+p7 <- autoplot(annual_ts)
+print(p7)
+```
+
+```{r}
+#training
+annual_ts_train <- window(annual_ts,
+                          start= c(2000,1),
+                end= c(2020, 1),
+                frequency = 1)
+
+ts_daily_test <- window(annual_ts,
+                start= c(2021, 1),
+                frequency = 1)
+```
+
+#Model 1: ARIMA
+```{r ARIMA}
+#Model 1: ARIMA
+# Fit an ARIMA model to the annual time series and forecast for 3 years
+model_arima <- auto.arima(annual_ts_train)
+forecast_arima <- forecast(model_arima, h = 3)
+print(forecast_arima)
+
+# Plot the forecast
+plot(forecast_arima)
+
+
+#Plot model + observed data
+autoplot(annual_ts) +
+  autolayer(forecast_arima, series="AutoArima",PI=FALSE) +
+  ylab("Annual oil production Ecuador")
+
+```
+
+### Testing Model 2:  MEAN_seas
+```{r MEAN, echo=TRUE, message=FALSE, warning=FALSE}
+#Model 2: Arithmetic mean on original data
+MEAN_seas <- meanf(y = annual_ts_train, h = 3)
+plot(MEAN_seas)
+
+autoplot(annual_ts) +
+  autolayer(MEAN_seas, series="MEAN",PI=FALSE) +
+  ylab("Production")
+
+```
+
+```{r}
+# Model 3: ETS (Exponential Smoothing without seasonality)
+model_ets <- ets(annual_ts_train)
+forecast_ets <- forecast(model_ets, h = 3)
+
+autoplot(annual_ts) +
+  autolayer(forecast_ets, series="ETS",PI=FALSE) +
+  ylab("Production")
+```
+
+```{r}
+# Model 4: Holt's Linear Trend method
+model_holt <- holt(annual_ts_train, h = 3)
+forecast_holt <- forecast(model_holt, h = 3)
+
+autoplot(annual_ts) +
+  autolayer(forecast_holt, series="HOLT",PI=FALSE) +
+  ylab("Production")
+```
+```{r}
+#Model 1: ARIMA
+ARIMA_scores <- accuracy(forecast_arima$mean,ts_daily_test)  #store the performance metrics
+
+#Model 2: Arithmetic mean 
+MEAN_scores <- accuracy(MEAN_seas$mean,ts_daily_test)
+
+# Model 3:  ETS
+ETS_scores <- accuracy(forecast_ets$mean,ts_daily_test)
+
+# Model 4:  HOLT
+HOLT_scores <- accuracy(forecast_holt$mean,ts_daily_test)
+
+```
+
+### Compare performance metrics
+
+Now we will create a data frame that combines performance metrics for all the three models. You can choose one metric to help you choose among models. For example let's say we want the model with lowest RMSE.
+
+```{r}
+#create data frame
+models_scores <- as.data.frame(rbind(MEAN_scores, ARIMA_scores,ETS_scores,HOLT_scores ))
+row.names(models_scores) <- c("MEAN", "ARIMA","ETS","HOLT")
+
+#choose model with lowest RMSE
+best_model_index <- which.min(models_scores[,"RMSE"])
+cat("The best model by RMSE is:", row.names(models_scores[best_model_index,]))                       
+                            
+```
+
+
+SARIMA was the best fit for the seasonal data. If you want generate a table to compare model accuracy and help visualize the results here is a suggestion on how to include a table on your Rmd report. You can use the `kable_styling(latex_options="striped")` to highlight the model that leads to minimum RMSE.
+
+```{r}
+kbl(models_scores, 
+      caption = "Forecast Accuracy for Annual Data",
+      digits = array(5,ncol(models_scores))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  #highlight model with lowest RMSE
+  kable_styling(latex_options="striped", stripe_index = which.min(models_scores[,"RMSE"]))
+```
+
+
+```{r}
+# Create a training set using data from 2020 to 2023
+annual_ts_2023 <- window(annual_ts, start = c(2000, 1), end = c(2023, 1))
+
+# Fit an ARIMA model on the updated training data
+model_arima_2023 <- auto.arima(annual_ts_2023)
+
+# Forecast the next 4 years (2024–2027)
+forecast_2024_2027 <- forecast(model_arima_2023, h = 4)
+
+# Print and plot the forecast
+print(forecast_2024_2027)
+plot(forecast_2024_2027)
+
+```
+
+```{r}
+# 1. Filter existing data from 2000 to 2023
+expected_production <- annual_data_72_2023 %>%
+  filter(year >= 2000, year <= 2023)
+
+# 2. Create a data frame for 2024–2027: data from https://www.primicias.ec/economia/plan-hidrocarburifero-inversiones-petroleo-gobierno-noboa-88061/
+daily_values <- c(475.27, 508.09, 600.72, 539.252)  # daily production according to Ecuador's gov
+future_years <- 2024:2027
+
+df_future <- data.frame(
+  year = future_years,
+  annual_production = daily_values * 1000 * 365
+)
+
+# 3. Combine the filtered data with the new rows
+expected_production <- bind_rows(expected_production, df_future)
+
+annual_exp_ts <- ts(expected_production[,2],
+                start = c(2000, 1),
+                frequency = 1)
+
+
+# 6. Plot the ARIMA forecast and government expected production together
+autoplot(forecast_2024_2027) +
+  autolayer(annual_exp_ts, series = "Government Expected", linetype = "dashed", color = "darkblue") +
+  xlab("Year") +
+  ylab("Annual Production") +
+  ggtitle("ARIMA Forecast vs. Government Expected Production (2024-2027)") +
+  guides(colour = guide_legend(title = "Series"))
+
+```
